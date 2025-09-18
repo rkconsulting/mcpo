@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, ForwardRef, List, Optional, Type, Union
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from mcp import ClientSession, types
 from mcp.types import (
@@ -17,6 +17,9 @@ from mcp.shared.exceptions import McpError
 
 from pydantic import Field, create_model
 from pydantic.fields import FieldInfo
+
+# Import header processing function
+from mcpo.utils.headers import process_headers_for_server
 
 MCP_ERROR_TO_HTTP_STATUS = {
     PARSE_ERROR: 400,
@@ -197,6 +200,7 @@ def get_tool_handler(
     endpoint_name,
     form_model_fields,
     response_model_fields=None,
+    header_forwarding_config=None,
 ):
     if form_model_fields:
         FormModel = create_model(f"{endpoint_name}_form_model", **form_model_fields)
@@ -207,13 +211,33 @@ def get_tool_handler(
         )
 
         def make_endpoint_func(
-            endpoint_name: str, FormModel, session: ClientSession
+            endpoint_name: str, FormModel, session: ClientSession, header_config: Dict[str, Any]
         ):  # Parameterized endpoint
-            async def tool(form_data: FormModel) -> ResponseModel:
+            async def tool(form_data: FormModel, request: Request) -> ResponseModel:
                 args = form_data.model_dump(exclude_none=True)
+                
+                # Process headers for forwarding
+                forwarded_headers = process_headers_for_server(request, header_config) if header_config else {}
+                
                 print(f"Calling endpoint: {endpoint_name}, with args: {args}")
+                if forwarded_headers:
+                    print(f"Forwarding headers: {list(forwarded_headers.keys())}")
+                
                 try:
-                    result = await session.call_tool(endpoint_name, arguments=args)
+                    # Create CallToolRequest with _meta field containing headers
+                    if forwarded_headers:
+                        # Use send_request with _meta headers
+                        mcp_request = types.CallToolRequest(
+                            params=types.CallToolRequestParams(
+                                name=endpoint_name,
+                                arguments=args,
+                                _meta={"headers": forwarded_headers}
+                            )
+                        )
+                        result = await session.send_request(mcp_request, types.CallToolResult)
+                    else:
+                        # Use regular call_tool when no headers to forward
+                        result = await session.call_tool(endpoint_name, arguments=args)
 
                     if result.isError:
                         error_message = "Unknown tool execution error"
@@ -255,7 +279,7 @@ def get_tool_handler(
 
             return tool
 
-        tool_handler = make_endpoint_func(endpoint_name, FormModel, session)
+        tool_handler = make_endpoint_func(endpoint_name, FormModel, session, header_forwarding_config or {})
     else:
 
         def make_endpoint_func_no_args(

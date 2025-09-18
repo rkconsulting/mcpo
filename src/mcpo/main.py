@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 from mcpo.utils.main import get_model_fields, get_tool_handler
 from mcpo.utils.auth import get_verify_api_key, APIKeyMiddleware
+from mcpo.utils.headers import validate_header_forwarding_config, process_headers_for_server
 
 
 async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
@@ -61,11 +62,15 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
                 outputSchema.get("$defs", {}),
             )
 
+        # Get header forwarding configuration from app state
+        header_forwarding_config = getattr(app.state, "header_forwarding", {"enabled": False})
+        
         tool_handler = get_tool_handler(
             session,
             endpoint_name,
             form_model_fields,
             response_model_fields,
+            header_forwarding_config,
         )
 
         app.post(
@@ -241,6 +246,12 @@ async def run(
             logger.error(f"No 'mcpServers' found in config file: {config_path}")
             raise ValueError("No 'mcpServers' found in config file.")
 
+        # Validate header forwarding configurations
+        for server_name, server_cfg in mcp_servers.items():
+            header_config = server_cfg.get("header_forwarding", {})
+            if header_config:
+                validate_header_forwarding_config(server_name, header_config)
+
         logger.info("Configured MCP Servers:")
         for server_name_cfg, server_cfg_details in mcp_servers.items():
             if server_cfg_details.get("command"):
@@ -317,6 +328,9 @@ async def run(
             ):  # Fallback for old SSE config
                 sub_app.state.server_type = "sse"
                 sub_app.state.args = server_cfg["url"]
+
+            # Store header forwarding configuration
+            sub_app.state.header_forwarding = server_cfg.get("header_forwarding", {"enabled": False})
 
             # Add middleware to protect also documentation and spec
             if api_key and strict_auth:
