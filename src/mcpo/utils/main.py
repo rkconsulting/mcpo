@@ -120,7 +120,19 @@ def _process_schema_property(
                 # TODO: Find the exact type hint for the $ref.
                 return Any, Field(default=None, description="")
         ref = ref.split("/")[-1]
-        assert ref in schema_defs, "Custom field not found"
+        
+        # Gracefully handle missing schema references instead of crashing
+        if schema_defs is None or ref not in schema_defs:
+            logger.warning(
+                f"Schema reference '{ref}' not found in definitions. "
+                f"Using Any type as fallback. This may indicate a complex schema "
+                f"that couldn't be fully resolved."
+            )
+            return Any, Field(
+                default=None, 
+                description=f"Referenced type: {ref} (definition not available)"
+            )
+        
         prop_schema = schema_defs[ref]
 
     prop_type = prop_schema.get("type")
