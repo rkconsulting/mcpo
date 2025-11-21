@@ -102,6 +102,8 @@ def _process_schema_property(
         A tuple containing (python_type_hint, pydantic_field).
         The pydantic_field contains default value and description.
     """
+    schema_defs = schema_defs or {}
+
     if "$ref" in prop_schema:
         ref = prop_schema["$ref"]
         if ref.startswith("#/properties/"):
@@ -117,21 +119,17 @@ def _process_schema_property(
             if prefix_path.startswith(ref_path):
                 # TODO: Find the exact type hint for the $ref.
                 return Any, Field(default=None, description="")
-        ref = ref.split("/")[-1]
-        
-        # Gracefully handle missing schema references instead of crashing
-        if schema_defs is None or ref not in schema_defs:
+        ref_key = ref.split("/")[-1]
+        if ref_key not in schema_defs:
             logger.warning(
-                f"Schema reference '{ref}' not found in definitions. "
-                f"Using Any type as fallback. This may indicate a complex schema "
-                f"that couldn't be fully resolved."
+                "Schema reference '%s' not found for model '%s.%s'; defaulting to Any",
+                ref,
+                model_name_prefix,
+                prop_name,
             )
-            return Any, Field(
-                default=None, 
-                description=f"Referenced type: {ref} (definition not available)"
-            )
-        
-        prop_schema = schema_defs[ref]
+            default_value = ... if is_required else None
+            return Any, Field(default=default_value, description="")
+        prop_schema = schema_defs[ref_key]
 
     prop_type = prop_schema.get("type")
     prop_desc = prop_schema.get("description", "")
@@ -286,6 +284,29 @@ def get_model_fields(form_model_name, properties, required_fields, schema_defs=N
     return model_fields
 
 
+async def call_tool_with_optional_meta(
+    session: ClientSession,
+    endpoint_name: str,
+    arguments: Dict[str, Any],
+    meta: Optional[Dict[str, Any]] = None,
+) -> CallToolResult:
+    """
+    Helper to call a tool while optionally attaching MCP _meta payloads.
+    """
+    if not meta:
+        return await session.call_tool(endpoint_name, arguments=arguments)
+
+    params = types.CallToolRequestParams(
+        name=endpoint_name,
+        arguments=arguments,
+        _meta=meta,
+    )
+    return await session.send_request(
+        types.ClientRequest(types.CallToolRequest(params=params)),
+        types.CallToolResult,
+    )
+
+
 def get_tool_handler(
     session,
     endpoint_name,
@@ -321,15 +342,21 @@ def get_tool_handler(
 
                 logger.info(f"Calling endpoint: {endpoint_name}, with args: {args}")
                 if forwarded_headers:
-                    logger.debug(f"Forwarding headers: {list(forwarded_headers.keys())}")
+                    logger.info(
+                        "Forwarding client headers to '%s': %s",
+                        endpoint_name,
+                        forwarded_headers,
+                    )
+                else:
+                    logger.info("No forwarded client headers for '%s'", endpoint_name)
 
                 try:
-                    # Forward headers via _meta in arguments if configured
-                    if forwarded_headers:
-                        args_with_meta = {**args, "_meta": {"headers": forwarded_headers}}
-                        result = await session.call_tool(endpoint_name, arguments=args_with_meta)
-                    else:
-                        result = await session.call_tool(endpoint_name, arguments=args)
+                    meta_payload = (
+                        {"headers": forwarded_headers} if forwarded_headers else None
+                    )
+                    result = await call_tool_with_optional_meta(
+                        session, endpoint_name, args, meta_payload
+                    )
 
                     if result.isError:
                         error_message = "Unknown tool execution error"
@@ -396,15 +423,21 @@ def get_tool_handler(
 
                 logger.info(f"Calling endpoint: {endpoint_name}, with no args")
                 if forwarded_headers:
-                    logger.debug(f"Forwarding headers: {list(forwarded_headers.keys())}")
+                    logger.info(
+                        "Forwarding client headers to '%s': %s",
+                        endpoint_name,
+                        forwarded_headers,
+                    )
+                else:
+                    logger.info("No forwarded client headers for '%s'", endpoint_name)
 
                 try:
-                    # Forward headers via _meta in arguments if configured
-                    if forwarded_headers:
-                        args_with_meta = {"_meta": {"headers": forwarded_headers}}
-                        result = await session.call_tool(endpoint_name, arguments=args_with_meta)
-                    else:
-                        result = await session.call_tool(endpoint_name, arguments={})
+                    meta_payload = (
+                        {"headers": forwarded_headers} if forwarded_headers else None
+                    )
+                    result = await call_tool_with_optional_meta(
+                        session, endpoint_name, {}, meta_payload
+                    )
 
                     if result.isError:
                         error_message = "Unknown tool execution error"
