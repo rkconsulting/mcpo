@@ -324,13 +324,10 @@ def get_tool_handler(
                     logger.debug(f"Forwarding headers: {list(forwarded_headers.keys())}")
 
                 try:
-                    # Forward headers via _meta if configured
+                    # Forward headers via _meta in arguments if configured
                     if forwarded_headers:
-                        result = await session.call_tool(
-                            endpoint_name, 
-                            arguments=args,
-                            _meta={"headers": forwarded_headers}
-                        )
+                        args_with_meta = {**args, "_meta": {"headers": forwarded_headers}}
+                        result = await session.call_tool(endpoint_name, arguments=args_with_meta)
                     else:
                         result = await session.call_tool(endpoint_name, arguments=args)
 
@@ -402,13 +399,10 @@ def get_tool_handler(
                     logger.debug(f"Forwarding headers: {list(forwarded_headers.keys())}")
 
                 try:
-                    # Forward headers via _meta if configured
+                    # Forward headers via _meta in arguments if configured
                     if forwarded_headers:
-                        result = await session.call_tool(
-                            endpoint_name,
-                            arguments={},
-                            _meta={"headers": forwarded_headers}
-                        )
+                        args_with_meta = {"_meta": {"headers": forwarded_headers}}
+                        result = await session.call_tool(endpoint_name, arguments=args_with_meta)
                     else:
                         result = await session.call_tool(endpoint_name, arguments={})
 
