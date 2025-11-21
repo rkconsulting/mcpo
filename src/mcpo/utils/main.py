@@ -296,13 +296,16 @@ async def call_tool_with_optional_meta(
     if not meta:
         return await session.call_tool(endpoint_name, arguments=arguments)
 
-    params = types.CallToolRequestParams(
-        name=endpoint_name,
-        arguments=arguments,
-        _meta=meta,
+    request = types.CallToolRequest(
+        method="tools/call",
+        params=types.CallToolRequestParams(
+            name=endpoint_name,
+            arguments=arguments,
+            _meta=meta,
+        ),
     )
     return await session.send_request(
-        types.ClientRequest(types.CallToolRequest(params=params)),
+        types.ClientRequest(request),
         types.CallToolResult,
     )
 
