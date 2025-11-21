@@ -307,14 +307,20 @@ def get_tool_handler(
                         request, client_header_forwarding_config
                     )
 
-                # Add headers to _meta if any headers are being forwarded
-                meta = {}
-                if forwarded_headers:
-                    meta["headers"] = forwarded_headers
-
                 logger.info(f"Calling endpoint: {endpoint_name}, with args: {args}")
+                if forwarded_headers:
+                    logger.debug(f"Forwarding headers: {list(forwarded_headers.keys())}")
+
                 try:
-                    result = await session.call_tool(endpoint_name, arguments=args)
+                    # Forward headers via _meta if configured
+                    if forwarded_headers:
+                        result = await session.call_tool(
+                            endpoint_name, 
+                            arguments=args,
+                            _meta={"headers": forwarded_headers}
+                        )
+                    else:
+                        result = await session.call_tool(endpoint_name, arguments=args)
 
                     if result.isError:
                         error_message = "Unknown tool execution error"
@@ -379,16 +385,20 @@ def get_tool_handler(
                         request, client_header_forwarding_config
                     )
 
-                # Add headers to _meta if any headers are being forwarded
-                meta = {}
-                if forwarded_headers:
-                    meta["headers"] = forwarded_headers
-
                 logger.info(f"Calling endpoint: {endpoint_name}, with no args")
+                if forwarded_headers:
+                    logger.debug(f"Forwarding headers: {list(forwarded_headers.keys())}")
+
                 try:
-                    result = await session.call_tool(
-                        endpoint_name, arguments={}
-                    )  # Empty dict
+                    # Forward headers via _meta if configured
+                    if forwarded_headers:
+                        result = await session.call_tool(
+                            endpoint_name,
+                            arguments={},
+                            _meta={"headers": forwarded_headers}
+                        )
+                    else:
+                        result = await session.call_tool(endpoint_name, arguments={})
 
                     if result.isError:
                         error_message = "Unknown tool execution error"
