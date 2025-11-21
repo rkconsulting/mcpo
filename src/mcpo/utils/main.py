@@ -102,6 +102,8 @@ def _process_schema_property(
         A tuple containing (python_type_hint, pydantic_field).
         The pydantic_field contains default value and description.
     """
+    schema_defs = schema_defs or {}
+
     if "$ref" in prop_schema:
         ref = prop_schema["$ref"]
         if ref.startswith("#/properties/"):
@@ -117,9 +119,17 @@ def _process_schema_property(
             if prefix_path.startswith(ref_path):
                 # TODO: Find the exact type hint for the $ref.
                 return Any, Field(default=None, description="")
-        ref = ref.split("/")[-1]
-        assert ref in schema_defs, "Custom field not found"
-        prop_schema = schema_defs[ref]
+        ref_key = ref.split("/")[-1]
+        if ref_key not in schema_defs:
+            logger.warning(
+                "Schema reference '%s' not found for model '%s.%s'; defaulting to Any",
+                ref,
+                model_name_prefix,
+                prop_name,
+            )
+            default_value = ... if is_required else None
+            return Any, Field(default=default_value, description="")
+        prop_schema = schema_defs[ref_key]
 
     prop_type = prop_schema.get("type")
     prop_desc = prop_schema.get("description", "")
@@ -274,6 +284,29 @@ def get_model_fields(form_model_name, properties, required_fields, schema_defs=N
     return model_fields
 
 
+async def call_tool_with_optional_meta(
+    session: ClientSession,
+    endpoint_name: str,
+    arguments: Dict[str, Any],
+    meta: Optional[Dict[str, Any]] = None,
+) -> CallToolResult:
+    """
+    Helper to call a tool while optionally attaching MCP _meta payloads.
+    """
+    if not meta:
+        return await session.call_tool(endpoint_name, arguments=arguments)
+
+    params = types.CallToolRequestParams(
+        name=endpoint_name,
+        arguments=arguments,
+        _meta=meta,
+    )
+    return await session.send_request(
+        types.ClientRequest(types.CallToolRequest(params=params)),
+        types.CallToolResult,
+    )
+
+
 def get_tool_handler(
     session,
     endpoint_name,
@@ -303,24 +336,34 @@ def get_tool_handler(
                     client_header_forwarding_config
                     and client_header_forwarding_config.get("enabled", False)
                 ):
+                    logger.debug(
+                        "Incoming request headers for '%s': %s",
+                        endpoint_name,
+                        dict(request.headers),
+                    )
                     forwarded_headers = process_headers_for_server(
                         request, client_header_forwarding_config
                     )
 
                 logger.info(f"Calling endpoint: {endpoint_name}, with args: {args}")
                 if forwarded_headers:
-                    logger.debug(f"Forwarding headers: {list(forwarded_headers.keys())}")
+                    logger.info(
+                        "Forwarding client headers to '%s': %s",
+                        endpoint_name,
+                        forwarded_headers,
+                    )
+                else:
+                    logger.info(
+                        "No forwarded client headers for '%s'", endpoint_name
+                    )
 
                 try:
-                    # Forward headers via _meta if configured
-                    if forwarded_headers:
-                        result = await session.call_tool(
-                            endpoint_name, 
-                            arguments=args,
-                            _meta={"headers": forwarded_headers}
-                        )
-                    else:
-                        result = await session.call_tool(endpoint_name, arguments=args)
+                    meta_payload = (
+                        {"headers": forwarded_headers} if forwarded_headers else None
+                    )
+                    result = await call_tool_with_optional_meta(
+                        session, endpoint_name, args, meta_payload
+                    )
 
                     if result.isError:
                         error_message = "Unknown tool execution error"
@@ -381,24 +424,34 @@ def get_tool_handler(
                     client_header_forwarding_config
                     and client_header_forwarding_config.get("enabled", False)
                 ):
+                    logger.debug(
+                        "Incoming request headers for '%s': %s",
+                        endpoint_name,
+                        dict(request.headers),
+                    )
                     forwarded_headers = process_headers_for_server(
                         request, client_header_forwarding_config
                     )
 
                 logger.info(f"Calling endpoint: {endpoint_name}, with no args")
                 if forwarded_headers:
-                    logger.debug(f"Forwarding headers: {list(forwarded_headers.keys())}")
+                    logger.info(
+                        "Forwarding client headers to '%s': %s",
+                        endpoint_name,
+                        forwarded_headers,
+                    )
+                else:
+                    logger.info(
+                        "No forwarded client headers for '%s'", endpoint_name
+                    )
 
                 try:
-                    # Forward headers via _meta if configured
-                    if forwarded_headers:
-                        result = await session.call_tool(
-                            endpoint_name,
-                            arguments={},
-                            _meta={"headers": forwarded_headers}
-                        )
-                    else:
-                        result = await session.call_tool(endpoint_name, arguments={})
+                    meta_payload = (
+                        {"headers": forwarded_headers} if forwarded_headers else None
+                    )
+                    result = await call_tool_with_optional_meta(
+                        session, endpoint_name, {}, meta_payload
+                    )
 
                     if result.isError:
                         error_message = "Unknown tool execution error"
