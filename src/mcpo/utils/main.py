@@ -295,11 +295,23 @@ def get_tool_handler(
     client_header_forwarding_config=None,
 ):
     async def call_tool_with_reconnect(
-        request: Request, arguments: Dict[str, Any]
+        request: Request, arguments: Dict[str, Any], meta: Optional[Dict[str, Any]] = None
     ) -> CallToolResult:
         session_manager = getattr(request.app.state, "session_manager", None)
 
         async def _invoke(session):
+            if meta:
+                req = types.CallToolRequest(
+                    method="tools/call",
+                    params=types.CallToolRequestParams(
+                        name=endpoint_name,
+                        arguments=arguments,
+                        _meta=meta,
+                    ),
+                )
+                return await session.send_request(
+                    types.ClientRequest(req), types.CallToolResult
+                )
             return await session.call_tool(endpoint_name, arguments=arguments)
 
         if session_manager:
@@ -355,13 +367,19 @@ def get_tool_handler(
                     request, client_header_forwarding_config
                 )
 
-            meta = {}
-            if forwarded_headers:
-                meta["headers"] = forwarded_headers
-
             logger.info(f"Calling endpoint: {endpoint_name}, with args: {args}")
+            if forwarded_headers:
+                logger.info(
+                    "Forwarding client headers to '%s': %s",
+                    endpoint_name,
+                    forwarded_headers,
+                )
+            else:
+                logger.info("No forwarded client headers for '%s'", endpoint_name)
+
+            meta_payload = {"headers": forwarded_headers} if forwarded_headers else None
             try:
-                result = await call_tool_with_reconnect(request, args)
+                result = await call_tool_with_reconnect(request, args, meta=meta_payload)
 
                 if result.isError:
                     error_message = "Unknown tool execution error"
@@ -415,13 +433,19 @@ def get_tool_handler(
                 request, client_header_forwarding_config
             )
 
-        meta = {}
-        if forwarded_headers:
-            meta["headers"] = forwarded_headers
-
         logger.info(f"Calling endpoint: {endpoint_name}, with no args")
+        if forwarded_headers:
+            logger.info(
+                "Forwarding client headers to '%s': %s",
+                endpoint_name,
+                forwarded_headers,
+            )
+        else:
+            logger.info("No forwarded client headers for '%s'", endpoint_name)
+
+        meta_payload = {"headers": forwarded_headers} if forwarded_headers else None
         try:
-            result = await call_tool_with_reconnect(request, {})
+            result = await call_tool_with_reconnect(request, {}, meta=meta_payload)
 
             if result.isError:
                 error_message = "Unknown tool execution error"
