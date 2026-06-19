@@ -218,6 +218,17 @@ def validate_server_config(server_name: str, server_cfg: Dict[str, Any]) -> None
             if not isinstance(tool_name, str):
                 raise ValueError(f"Server '{server_name}' 'disabledTools' must contain only strings")
 
+    # Validate hiddenTools (accessible but excluded from OpenAPI schema)
+    hidden_tools = server_cfg.get("hiddenTools")
+    if hidden_tools is None:
+        hidden_tools = server_cfg.get("hidden_tools")
+    if hidden_tools is not None:
+        if not isinstance(hidden_tools, list):
+            raise ValueError(f"Server '{server_name}' 'hiddenTools' must be a list")
+        for tool_name in hidden_tools:
+            if not isinstance(tool_name, str):
+                raise ValueError(f"Server '{server_name}' 'hiddenTools' must contain only strings")
+
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load and validate config from file."""
@@ -315,6 +326,12 @@ def create_sub_app(
     if disabled_tools is None:
         disabled_tools = server_cfg.get("disabled_tools", [])
     sub_app.state.disabled_tools = disabled_tools
+
+    # Store list of tools to be hidden from OpenAPI schema (accept both key styles)
+    hidden_tools = server_cfg.get("hiddenTools")
+    if hidden_tools is None:
+        hidden_tools = server_cfg.get("hidden_tools", [])
+    sub_app.state.hidden_tools = hidden_tools
 
     
     # Store client header forwarding configuration
@@ -527,6 +544,13 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
         if filtered_count > 0:
             logger.info(f"Filtered out {filtered_count} tool(s) for server '{app.title}': {disabled_tools}")
 
+    # Get hidden tools (accessible but excluded from OpenAPI schema)
+    hidden_tools = getattr(app.state, "hidden_tools", [])
+    if hidden_tools:
+        hidden_count = sum(1 for tool in tools if tool.name in hidden_tools)
+        if hidden_count > 0:
+            logger.info(f"Hiding {hidden_count} tool(s) from OpenAPI schema for server '{app.title}': {hidden_tools}")
+
     for tool in tools:
         endpoint_name = tool.name
         endpoint_description = tool.description
@@ -562,12 +586,14 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
             client_header_forwarding_config,
         )
 
+        is_hidden = endpoint_name in hidden_tools
         app.post(
             f"/{endpoint_name}",
             summary=endpoint_name.replace("_", " ").title(),
             description=endpoint_description,
             response_model_exclude_none=True,
             dependencies=[Depends(api_dependency)] if api_dependency else [],
+            include_in_schema=not is_hidden,
         )(tool_handler)
 
 

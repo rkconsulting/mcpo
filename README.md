@@ -116,7 +116,8 @@ Example config.json:
     "time": {
       "command": "uvx",
       "args": ["mcp-server-time", "--local-timezone=America/New_York"],
-      "disabledTools": ["convert_time"] // Disable specific tools if needed
+      "disabledTools": ["convert_time"], // Disable specific tools if needed
+      "hiddenTools": ["internal_tool"]   // Hide from OpenAPI schema but keep accessible
     },
     "mcp_sse": {
       "type": "sse", // Explicitly define type
@@ -139,6 +140,40 @@ Each tool will be accessible under its own unique route, e.g.:
 - http://localhost:8000/time
 
 Each with a dedicated OpenAPI schema and proxy handler. Access full schema UI at: `http://localhost:8000/<tool>/docs`  (e.g. /memory/docs, /time/docs)
+
+### 🫣 Hidden Tools
+
+Use `hiddenTools` to make tools **callable** through mcpo but **excluded from the OpenAPI schema**. This is useful for internal or administrative tools that should be accessible via direct HTTP calls but not exposed to Open WebUI's tool discovery.
+
+```json
+{
+  "mcpServers": {
+    "my_server": {
+      "command": "my-mcp-server",
+      "args": [],
+      "hiddenTools": ["internal_healthcheck", "admin_reset_cache"]
+    }
+  }
+}
+```
+
+**Behavior:**
+- `disabledTools` — tool is **not accessible** AND **not in schema** (completely removed)
+- `hiddenTools` — tool **is accessible** at its endpoint BUT **not in schema** (hidden from discovery)
+- If a tool appears in both lists, `disabledTools` takes precedence
+
+> **⚠️ Important for Open WebUI users:** Use the **original MCP tool names** in `hiddenTools`, not the names as they appear in Open WebUI. Open WebUI displays tools with a `post_` prefix and `_tool` suffix (e.g., an MCP tool named `search_web` appears as `post_search_web_tool` in OWUI). Always use the MCP tool name (`search_web`), not the OWUI-formatted name (`post_search_web_tool`).
+
+You can verify hidden tools are still working by calling them directly:
+```bash
+# Hidden tool is still callable via HTTP POST
+curl -X POST http://localhost:8000/my_server/internal_healthcheck \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+# But it won't appear in the OpenAPI schema
+curl http://localhost:8000/my_server/openapi.json | grep internal_healthcheck
+# (no output — tool is not listed)
+```
 
 ### 🔐 OAuth 2.1 Authentication
 

@@ -55,6 +55,32 @@ def test_validate_server_config_disabled_tools_invalid():
         validate_server_config("test_server", config)
 
 
+def test_validate_server_config_hidden_tools_valid():
+    """Test validation of server configuration with a valid hiddenTools."""
+    config = {"command": "echo", "args": ["hello"], "hiddenTools": ["internal_tool"]}
+    validate_server_config("test_server", config)
+
+
+def test_validate_server_config_hidden_tools_snake_case():
+    """Test validation accepts snake_case hidden_tools key."""
+    config = {"command": "echo", "args": ["hello"], "hidden_tools": ["internal_tool"]}
+    validate_server_config("test_server", config)
+
+
+def test_validate_server_config_hidden_tools_invalid():
+    """Test validation fails for an invalid hiddenTools."""
+    config = {"command": "echo", "args": ["hello"], "hiddenTools": "not-a-list"}
+    with pytest.raises(ValueError, match="'hiddenTools' must be a list"):
+        validate_server_config("test_server", config)
+
+
+def test_validate_server_config_hidden_tools_invalid_items():
+    """Test validation fails for hiddenTools with non-string items."""
+    config = {"command": "echo", "args": ["hello"], "hiddenTools": [123]}
+    with pytest.raises(ValueError, match="'hiddenTools' must contain only strings"):
+        validate_server_config("test_server", config)
+
+
 def test_load_config_valid():
     """Test loading a valid config file."""
     config_data = {
