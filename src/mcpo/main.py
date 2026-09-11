@@ -627,6 +627,26 @@ async def run(
         level=numeric_level, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
+    # Rotating file logging
+    log_dir = os.getenv("MCPO_LOG_DIR", "")
+    if log_dir:
+        from logging.handlers import RotatingFileHandler
+
+        os.makedirs(log_dir, exist_ok=True)
+        _log_file = os.path.join(log_dir, "mcpo.log")
+        _max_bytes = int(os.getenv("MCPO_LOG_MAX_BYTES", str(10 * 1024 * 1024)))
+        _backup_count = int(os.getenv("MCPO_LOG_BACKUP_COUNT", "90"))
+        _fh = RotatingFileHandler(
+            _log_file, maxBytes=_max_bytes, backupCount=_backup_count, encoding="utf-8"
+        )
+        _fh.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        _fh.setLevel(numeric_level)
+        logging.getLogger().addHandler(_fh)
+        logger.info(
+            f"File logging to {_log_file} "
+            f"(max {_max_bytes // 1024 // 1024}MB x {_backup_count} backups)"
+        )
+
     # Suppress HTTP request logs
     class HTTPRequestFilter(logging.Filter):
         def filter(self, record):
