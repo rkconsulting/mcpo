@@ -757,10 +757,11 @@ async def run(
     logger.info("Uvicorn server starting...")
     uvicorn_log_level = log_level.lower()
 
-    # Request body size limit — default 16 MB (uvicorn default), configurable via env
-    _max_req_mb = os.getenv("MCPO_MAX_REQUEST_SIZE_MB", "")
-    _max_req_bytes = int(_max_req_mb) * 1024 * 1024 if _max_req_mb else 16 * 1024 * 1024
-    logger.info(f"Max request body size: {_max_req_bytes / 1024 / 1024:.0f} MB")
+    # Request body size — uvicorn 0.34.x has no limit_max_request_size;
+    # body size is bounded only by available memory. Log the configured
+    # MCP-level limit so operators know what the downstream MCP server will accept.
+    _pandoc_max_mb = os.getenv("PANDOC_MAX_CONTENT_SIZE_MB", "10")
+    logger.info(f"MCP content size limit (PANDOC_MAX_CONTENT_SIZE_MB): {_pandoc_max_mb} MB")
 
     config = uvicorn.Config(
         app=main_app,
@@ -769,7 +770,6 @@ async def run(
         ssl_certfile=ssl_certfile,
         ssl_keyfile=ssl_keyfile,
         log_level=uvicorn_log_level,
-        limit_max_request_size=_max_req_bytes,
     )
     server = uvicorn.Server(config)
 
