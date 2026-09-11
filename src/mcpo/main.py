@@ -757,6 +757,11 @@ async def run(
     logger.info("Uvicorn server starting...")
     uvicorn_log_level = log_level.lower()
 
+    # Request body size limit — default 16 MB (uvicorn default), configurable via env
+    _max_req_mb = os.getenv("MCPO_MAX_REQUEST_SIZE_MB", "")
+    _max_req_bytes = int(_max_req_mb) * 1024 * 1024 if _max_req_mb else 16 * 1024 * 1024
+    logger.info(f"Max request body size: {_max_req_bytes / 1024 / 1024:.0f} MB")
+
     config = uvicorn.Config(
         app=main_app,
         host=host,
@@ -764,6 +769,7 @@ async def run(
         ssl_certfile=ssl_certfile,
         ssl_keyfile=ssl_keyfile,
         log_level=uvicorn_log_level,
+        limit_max_request_size=_max_req_bytes,
     )
     server = uvicorn.Server(config)
 
